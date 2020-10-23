@@ -668,7 +668,8 @@ cunit_TESTS += \
 	cunit/strconcat.testc \
 	cunit/times.testc \
 	cunit/tok.testc \
-	cunit/vparse.testc
+	cunit/vparse.testc \
+	cunit/dynarray.testc
 
 if HTTPD
 cunit_TESTS += cunit/ical_support.testc
@@ -775,6 +776,7 @@ include_HEADERS = \
 	lib/cyr_lock.h \
 	lib/cyr_qsort_r.h \
 	lib/cyrusdb.h \
+	lib/dynarray.h \
 	lib/glob.h \
 	lib/gmtoff.h \
 	lib/hash.h \
@@ -1530,6 +1532,7 @@ lib_libcyrus_min_la_SOURCES = \
 	lib/assert.c \
 	lib/bufarray.c \
 	lib/byteorder.c \
+	lib/dynarray.c \
 	lib/hash.c \
 	lib/hashset.c \
 	lib/hashu64.c \
