@@ -708,6 +708,7 @@ struct xapian_dbw
     Xapian::TermGenerator *term_generator;
     Xapian::Stem *default_stemmer;
     const Xapian::Stopper* default_stopper;
+    bool is_inmemory;
     // Document context.
     Xapian::Document *document;
     char doctype;
@@ -796,6 +797,25 @@ int xapian_dbw_open(const char **paths, xapian_dbw_t **dbwp, int mode, int nosyn
     *dbwp = dbw;
 
     return 0;
+}
+
+int xapian_dbw_openmem(struct xapian_dbw **dbwp)
+{
+    xapian_dbw_t *dbw = (xapian_dbw_t *)xzmalloc(sizeof(xapian_dbw_t));
+    dbw->is_inmemory = true;
+
+    dbw->database = new Xapian::WritableDatabase{"", Xapian::DB_BACKEND_INMEMORY};
+    std::set<int> db_versions {XAPIAN_DB_CURRENT_VERSION};
+    write_db_versions(*dbw->database, db_versions);
+
+    int r = xapian_dbw_init(dbw);
+    if (r) {
+        xapian_dbw_close(dbw);
+        dbw = NULL;
+    }
+
+    *dbwp = dbw;
+    return r;
 }
 
 void xapian_dbw_close(xapian_dbw_t *dbw)
@@ -1320,7 +1340,7 @@ struct xapian_db
     xapian_dbw_t *dbw;
 };
 
-static int xapian_db_init(xapian_db_t *db)
+static int xapian_db_init(xapian_db_t *db, int is_inmemory)
 {
     int r = 0;
 
@@ -1330,19 +1350,21 @@ static int xapian_db_init(xapian_db_t *db)
         db->parser->set_database(db->database ? *db->database : *db->legacydbv4);
         db->default_stemmer = new Xapian::Stem(new CyrusSearchStemmer);
         db->default_stopper = get_stopper("en");
-
-        // Determine stemmer languages (in addition to English).
         db->stem_languages = new std::set<std::string>;
-        std::map<const std::string, unsigned> lang_counts;
-        size_t total_doccount = 0;
-        for (const Xapian::Database& subdb : *db->subdbs) {
-            read_language_counts(subdb, lang_counts);
-            total_doccount += subdb.get_doccount();
-        }
-        total_doccount /= 2; // Crude estimate.
-        for (std::pair<const std::string, unsigned>& it : lang_counts) {
-            if (it.first.compare("en") && ((double) it.second / total_doccount) >= 0.05) {
-                db->stem_languages->insert(it.first);
+
+        if (!is_inmemory) {
+            // Determine stemmer languages (in addition to English).
+            std::map<const std::string, unsigned> lang_counts;
+            size_t total_doccount = 0;
+            for (const Xapian::Database& subdb : *db->subdbs) {
+                read_language_counts(subdb, lang_counts);
+                total_doccount += subdb.get_doccount();
+            }
+            total_doccount /= 2; // Crude estimate.
+            for (std::pair<const std::string, unsigned>& it : lang_counts) {
+                if (it.first.compare("en") && ((double) it.second / total_doccount) >= 0.05) {
+                    db->stem_languages->insert(it.first);
+                }
             }
         }
     }
@@ -1399,7 +1421,7 @@ int xapian_db_open(const char **paths, xapian_db_t **dbp)
             goto done;
         }
 
-        r = xapian_db_init(db);
+        r = xapian_db_init(db, 0);
         if (r) goto done;
     }
     catch (const Xapian::Error &err) {
@@ -1429,7 +1451,7 @@ int xapian_db_opendbw(struct xapian_dbw *dbw, xapian_db_t **dbp)
     db->subdbs = new std::vector<Xapian::Database>;
     db->subdbs->push_back(*dbw->database);
 
-    int r = xapian_db_init(db);
+    int r = xapian_db_init(db, dbw->is_inmemory);
     if (r) {
         xapian_db_close(db);
         db = NULL;
